@@ -1,0 +1,15 @@
+[Unit]
+Description=Neron MCP Server
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/Neron-MCP
+Environment="PATH=/home/Neron-MCP/venv/bin"
+ExecStart=/home/Neron-MCP/venv/bin/python3 /home/Neron-MCP/http_server.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
