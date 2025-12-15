@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Neron MCP HTTP Server - Streamable HTTP transport with authentication
+Neron MCP HTTP Server - Validates bearer tokens from fake OAuth server.
 """
 
 import logging
@@ -21,19 +21,26 @@ logger = logging.getLogger(__name__)
 session_manager = None
 
 
-async def verify_auth(request: Request) -> bool:
-    """Verify bearer token authentication."""
+async def verify_token(request: Request) -> bool:
+    """Verify bearer token matches the hardcoded one."""
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         return False
-    return auth_header[7:] == config.MCP_AUTH_TOKEN
+    token = auth_header[7:]
+    return token == config.MCP_AUTH_TOKEN
 
 
 async def handle_mcp(request: Request):
-    """Handle MCP streamable HTTP requests."""
-    if not await verify_auth(request):
-        logger.warning(f"Unauthorized request from {request.client}")
-        return Response(content="Unauthorized", status_code=401, headers={"WWW-Authenticate": "Bearer"})
+    """Handle MCP requests with token validation."""
+    if not await verify_token(request):
+        logger.warning(f"Invalid token from {request.client}")
+        return Response(
+            content="Unauthorized",
+            status_code=401,
+            headers={
+                "WWW-Authenticate": f'Bearer realm="mcp", resource_metadata_url="https://{config.SERVER_DOMAIN}/.well-known/oauth-protected-resource"'
+            },
+        )
 
     logger.info(f"Authenticated request from {request.client}")
     return await session_manager.handle_request(request.scope, request.receive, request._send)
@@ -51,7 +58,7 @@ async def lifespan(app):
     session_manager = StreamableHTTPSessionManager(mcp_app)
 
     async with session_manager.run():
-        logger.info(f"Server ready: {config.MCP_SERVER_NAME}")
+        logger.info(f"MCP server ready: {config.MCP_SERVER_NAME}")
         yield
 
     logger.info("Closing database...")
@@ -68,7 +75,7 @@ if __name__ == "__main__":
     import uvicorn
 
     config.validate_config()
-    logger.info(f"Starting {config.MCP_SERVER_NAME}")
-    logger.info("Authentication: Bearer token required")
+    logger.info(f"Starting {config.MCP_SERVER_NAME} on port 8000")
+    logger.info("Token validation enabled")
 
     uvicorn.run(http_app, host="0.0.0.0", port=8000, log_level="info")

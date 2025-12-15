@@ -1,5 +1,25 @@
 mcp.neron.guru {
-    reverse_proxy localhost:8000
+    # OAuth endpoints (port 8001)
+    handle /.well-known/* {
+        reverse_proxy localhost:8001
+    }
+
+    handle /authorize* {
+        reverse_proxy localhost:8001
+    }
+
+    handle /token {
+        reverse_proxy localhost:8001
+    }
+
+    handle /register {
+        reverse_proxy localhost:8001
+    }
+
+    # MCP server (port 8000)
+    handle {
+        reverse_proxy localhost:8000
+    }
 
     log {
         output file /var/log/caddy/mcp-neron.log

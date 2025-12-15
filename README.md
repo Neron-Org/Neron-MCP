@@ -1,215 +1,223 @@
 # Neron MCP Server
 
-Secure MCP server providing semantic search and retrieval over personal notes stored in PostgreSQL with pgvector embeddings.
-
-## Goal
-
-Provide authenticated access to private note retrieval via Model Context Protocol (MCP) using streamable HTTP transport. The server is designed to be secure-by-default: all endpoints require bearer token authentication and data is only accessible via HTTPS.
-
-## Features
-
-- **Semantic Search**: Query notes using natural language via Voyage AI embeddings
-- **Date-based Retrieval**: Get all notes for a specific day
-- **Full Access**: Retrieve all notes from the database
-- **Secure**: Bearer token authentication required for all requests
-- **Production Ready**: HTTPS with automatic Let's Encrypt certificates
+Secure MCP server with OAuth 2.1 authentication for Claude Desktop and MCP clients.
 
 ## Architecture
 
 ```
-Client → HTTPS (mcp.neron.guru) → Caddy → HTTP (localhost:8000) → MCP Server → PostgreSQL + pgvector
+Client (Claude Desktop) → HTTPS → Caddy Reverse Proxy
+                                      ↓
+                     ┌────────────────┴────────────────┐
+                     ↓                                 ↓
+        OAuth Server (port 8001)          MCP Server (port 8000)
+        - /authorize                       - Token validation
+        - /token                           - MCP tools
+        - /register                        - Database queries
+        - Discovery endpoints
 ```
+
+## Features
+
+- **OAuth 2.1 Authorization**: Full OAuth flow for Claude Desktop
+- **Semantic Search**: Query notes using Voyage AI embeddings
+- **Date-based Retrieval**: Get notes for specific days
+- **HTTPS**: Automatic Let's Encrypt certificates
+- **Token-based Auth**: Bearer token validation
 
 ## Installation
 
 ### Prerequisites
 
 - Python 3.8+
-- PostgreSQL with pgvector extension
+- PostgreSQL with pgvector
 - Caddy web server
 - Voyage AI API key
 
 ### Setup
 
-1. **Clone and configure**:
+1. **Install dependencies**:
 ```bash
-cd /path/to/Neron-MCP
-python3 -m venv venv
+cd /home/Neron-MCP
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2. **Configure environment**:
-```bash
-cp .env.example .env
-# Edit .env with your credentials
-```
+2. **Configure environment** (`.env` file):
+   - `MCP_AUTH_TOKEN`: Bearer token (returned by OAuth flow)
+   - `VOYAGE_API_KEY`: Voyage AI API key
+   - `DB_PASSWORD`: PostgreSQL password
+   - `SERVER_DOMAIN`: Your domain (e.g., mcp.neron.guru)
 
-3. **Install Caddy**:
+3. **Install services**:
 ```bash
-sudo snap install caddy
-```
+# OAuth server
+sudo cp neron-oauth.service /etc/systemd/system/
+sudo systemctl enable neron-oauth
+sudo systemctl start neron-oauth
 
-4. **Configure Caddy**:
-```bash
+# MCP server
+sudo cp neron-mcp.service /etc/systemd/system/
+sudo systemctl enable neron-mcp
+sudo systemctl start neron-mcp
+
+# Caddy
 sudo cp Caddyfile /etc/caddy/Caddyfile
 sudo systemctl restart caddy
 ```
 
-5. **Setup systemd service**:
-```bash
-sudo cp neron-mcp.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable neron-mcp
-sudo systemctl start neron-mcp
-```
+## OAuth Flow
 
-## Configuration
+The server implements a **simplified OAuth 2.1 flow**:
 
-All configuration is done via environment variables in `.env`:
+1. Client discovers OAuth server via `/.well-known/oauth-authorization-server`
+2. Client registers via `/register` endpoint
+3. Client redirects to `/authorize` for user consent
+4. User clicks "Authorize" button
+5. Server redirects back with authorization code
+6. Client exchanges code for bearer token at `/token`
+7. Client uses token for all MCP requests
 
-### Required Variables
+**Note**: The OAuth server always returns the same bearer token from `.env` for simplicity. After authorizing all devices, you can shut down the OAuth server (port 8001) - the MCP server will continue validating tokens.
 
-- `MCP_AUTH_TOKEN` - Bearer token for authentication
-- `VOYAGE_API_KEY` - Voyage AI API key for embeddings
-- `DB_PASSWORD` - PostgreSQL password
+**Technical details**:
+- Uses 303 See Other redirect to convert POST → GET for OAuth callback
+- CORS enabled for cross-origin token exchange
+- PKCE support with S256 code challenge method
 
-### Optional Variables
+## Connecting from Claude Desktop
 
-- `MCP_SERVER_NAME` - Server name (default: "neron-mcp")
-- `VOYAGE_MODEL` - Embedding model (default: "voyage-3-large")
-- `EMBEDDING_DIMENSION` - Vector dimension (default: 1024)
-- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` - PostgreSQL connection
-- `DB_MIN_CONNECTIONS`, `DB_MAX_CONNECTIONS` - Connection pool settings
-
-## Usage
-
-### Connecting
+1. Add server configuration to Claude Desktop
+2. Claude will open browser for authorization
+3. Click "Authorize" in the browser
+4. Claude Desktop receives token automatically
+5. Start using the MCP tools
 
 **Server URL**: `https://mcp.neron.guru`
 
-**Authentication**: Bearer token in `Authorization` header
+## Available Tools
 
+### 1. get_notes_per_day
+```json
+{"day": "2025-12-14"}
+```
+
+### 2. get_all_notes
+No parameters required.
+
+### 3. search
+```json
+{"text": "meeting notes", "top_k": 5}
+```
+
+## Database
+
+Connects to existing PostgreSQL database:
+- **Database**: postgres
+- **Table**: neron
+- **Vector dimension**: 1024 (voyage-3-large)
+
+Shared with Neron-Bot for data input.
+
+## Monitoring
+
+### Check services
 ```bash
-Authorization: Bearer <your-token-from-env>
+sudo systemctl status neron-oauth
+sudo systemctl status neron-mcp
+sudo systemctl status caddy
 ```
 
-### Available Tools
+### View logs
+```bash
+# OAuth server
+sudo journalctl -u neron-oauth -f
 
-#### 1. get_notes_per_day
+# MCP server
+sudo journalctl -u neron-mcp -f
 
-Retrieve all notes for a specific day.
-
-```json
-{
-  "day": "2025-12-14"
-}
+# Caddy
+sudo tail -f /var/log/caddy/mcp-neron.log
 ```
 
-#### 2. get_all_notes
+### Test endpoints
+```bash
+# OAuth discovery
+curl https://mcp.neron.guru/.well-known/oauth-authorization-server
 
-Retrieve all notes from the database. No parameters required.
+# Protected resource metadata
+curl https://mcp.neron.guru/.well-known/oauth-protected-resource
 
-#### 3. search
-
-Perform semantic search using embeddings.
-
-```json
-{
-  "text": "meeting notes about project",
-  "top_k": 5
-}
-```
-
-## Database Schema
-
-```sql
-CREATE TABLE neron (
-    id SERIAL PRIMARY KEY,
-    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    text TEXT NOT NULL,
-    embedding vector(1024) NOT NULL
-);
-```
-
-- Database: `postgres`
-- Table: `neron`
-- Shared with Neron-Bot for data input
-
-## Project Structure
-
-```
-.
-├── server.py           # MCP server with tool handlers
-├── http_server.py      # HTTP wrapper with authentication
-├── db_connector.py     # PostgreSQL and Voyage AI integration
-├── config.py           # Configuration loader
-├── requirements.txt    # Python dependencies
-├── Caddyfile          # HTTPS reverse proxy configuration
-├── .env               # Environment variables (not in git)
-└── .env.example       # Environment template
+# MCP endpoint (requires token)
+curl -H "Authorization: Bearer <token>" https://mcp.neron.guru
 ```
 
 ## Security
 
-- All endpoints require bearer token authentication
-- HTTPS enforced via Caddy with Let's Encrypt
-- Database credentials stored in environment variables
-- Private data - no unauthenticated access permitted
+- ✅ OAuth 2.1 with PKCE (S256 code challenge)
+- ✅ HTTPS only (TLS 1.2+)
+- ✅ Bearer token validation on every request
+- ✅ CORS-compliant OAuth implementation
+- ✅ No passwords stored (single-user auth)
+- ✅ Can disable OAuth server after initial setup
+- ✅ Protected resource metadata (RFC 9728)
 
-## Monitoring
+## Shutting Down OAuth Server
 
-### Check server status
+After authorizing all your devices:
 
 ```bash
-sudo systemctl status neron-mcp
+sudo systemctl stop neron-oauth
+sudo systemctl disable neron-oauth
 ```
 
-### View logs
+The MCP server will continue working with existing tokens. Re-enable OAuth server only when adding new devices:
 
 ```bash
-sudo journalctl -u neron-mcp -f
+sudo systemctl enable neron-oauth
+sudo systemctl start neron-oauth
 ```
 
-### Test authentication
+## Files
 
-```bash
-# Should return 401 Unauthorized
-curl https://mcp.neron.guru
-
-# Should work with token
-curl -H "Authorization: Bearer your-token-here" https://mcp.neron.guru
+```
+├── server.py              # MCP server core (3 tools)
+├── http_server.py         # MCP HTTP wrapper with token validation
+├── fake_oauth_server.py   # OAuth 2.1 authorization server
+├── db_connector.py        # Database operations
+├── config.py              # Configuration
+├── requirements.txt       # Dependencies
+├── Caddyfile             # HTTPS routing
+├── neron-mcp.service     # MCP systemd service
+├── neron-oauth.service   # OAuth systemd service
+└── .env                  # Secrets (not in git)
 ```
 
 ## Troubleshooting
 
-### Server won't start
+### OAuth server not responding
+```bash
+sudo systemctl status neron-oauth
+sudo journalctl -u neron-oauth -n 50
+```
 
-1. Check configuration: `python config.py`
-2. Check database: `sudo -u postgres psql -d postgres -c "SELECT COUNT(*) FROM neron;"`
-3. Check logs: `sudo journalctl -u neron-mcp -n 50`
+### MCP server connection issues
+```bash
+# Check if service is running
+sudo systemctl status neron-mcp
 
-### Authentication failures
+# Verify token in .env matches what Claude has
+grep MCP_AUTH_TOKEN /home/Neron-MCP/.env
 
-1. Verify token in `.env` matches client token
-2. Check `Authorization` header format: `Bearer <token>`
-3. Review server logs for authentication attempts
+# Test token manually
+curl -H "Authorization: Bearer YOUR_TOKEN" https://mcp.neron.guru
+```
 
-### HTTPS issues
-
-1. Check Caddy: `sudo systemctl status caddy`
-2. Validate Caddyfile: `sudo caddy validate --config /etc/caddy/Caddyfile`
-3. Check DNS: `dig mcp.neron.guru`
+### Claude Desktop authorization fails
+1. Make sure OAuth server is running: `sudo systemctl start neron-oauth`
+2. Check browser console for errors
+3. Verify domain is accessible: `curl https://mcp.neron.guru/.well-known/oauth-authorization-server`
+4. Review Caddy logs: `sudo tail -f /var/log/caddy/mcp-neron.log`
 
 ## License
 
 Private project.
-
-## Dependencies
-
-- `mcp>=1.0.0` - Model Context Protocol SDK
-- `voyageai>=0.2.3` - Voyage AI embeddings
-- `psycopg2-binary>=2.9.10` - PostgreSQL adapter
-- `python-dotenv>=1.0.1` - Environment variable management
-- `starlette` - ASGI framework
-- `uvicorn` - ASGI server

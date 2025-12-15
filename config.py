@@ -10,6 +10,7 @@ load_dotenv()
 # MCP Server
 MCP_SERVER_NAME = os.getenv('MCP_SERVER_NAME', 'neron-mcp')
 MCP_AUTH_TOKEN = os.getenv('MCP_AUTH_TOKEN')
+SERVER_DOMAIN = os.getenv('SERVER_DOMAIN', 'mcp.neron.guru')
 
 # Voyage AI
 VOYAGE_API_KEY = os.getenv('VOYAGE_API_KEY')
