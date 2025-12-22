@@ -84,7 +84,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             result = [f"Found {len(notes)} note(s) for {day_str}:\n"]
             for i, (note_id, timestamp, text) in enumerate(notes, 1):
-                result.append(f"\n{i}. [{timestamp.strftime('%H:%M:%S')}] {text[:200]}...")
+                result.append(f"\n{i}. [{timestamp.strftime('%H:%M:%S')}] {text}")
 
             return [TextContent(type="text", text="\n".join(result))]
 
@@ -95,7 +95,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             result = [f"Found {len(notes)} note(s):\n"]
             for i, (note_id, timestamp, text) in enumerate(notes, 1):
-                result.append(f"\n{i}. [{timestamp.strftime('%Y-%m-%d %H:%M')}] {text[:200]}...")
+                result.append(f"\n{i}. [{timestamp.strftime('%Y-%m-%d %H:%M')}] {text}")
 
             return [TextContent(type="text", text="\n".join(result))]
 
@@ -113,7 +113,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = [f"Found {len(results)} result(s) for '{query_text}':\n"]
             for i, (note_id, text, timestamp, similarity) in enumerate(results, 1):
                 result.append(f"\n{i}. [{similarity*100:.1f}%] {timestamp.strftime('%Y-%m-%d')}")
-                result.append(f"   {text[:200]}...")
+                result.append(f"   {text}")
 
             return [TextContent(type="text", text="\n".join(result))]
 
